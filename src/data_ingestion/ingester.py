@@ -5,7 +5,6 @@ Handles ingestion from CSV and JSON files
 
 import pandas as pd
 from typing import Dict, Any, Optional
-from pathlib import Path
 import logging
 from datetime import datetime
 
@@ -121,9 +120,9 @@ class DataIngester:
             if handle_nulls == "drop":
                 data = data.dropna()
             elif handle_nulls == "forward_fill":
-                data = data.fillna(method="ffill")
+                data = data.ffill()
             elif handle_nulls == "backward_fill":
-                data = data.fillna(method="bfill")
+                data = data.bfill()
             elif handle_nulls == "mean":
                 numeric_cols = data.select_dtypes(include=["number"]).columns
                 data[numeric_cols] = data[numeric_cols].fillna(data[numeric_cols].mean())

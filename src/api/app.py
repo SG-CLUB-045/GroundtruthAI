@@ -4,7 +4,6 @@ Handles data upload, processing, report generation, and download
 """
 
 import os
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -49,9 +48,22 @@ def create_app(config=None):
     if config is None:
         config = {}
     
+    # Get project root directory (parent of src directory)
+    project_root = Path(__file__).parent.parent.parent.resolve()
+    
+    # Convert relative paths to absolute paths
+    upload_folder = config.get('upload_folder', './uploads')
+    output_folder = config.get('output_folder', './output')
+    
+    # If paths are relative, make them absolute relative to project root
+    if not os.path.isabs(upload_folder):
+        upload_folder = os.path.join(project_root, upload_folder.lstrip('./'))
+    if not os.path.isabs(output_folder):
+        output_folder = os.path.join(project_root, output_folder.lstrip('./'))
+    
     app.config.update(
-        UPLOAD_FOLDER=config.get('upload_folder', './uploads'),
-        OUTPUT_FOLDER=config.get('output_folder', './output'),
+        UPLOAD_FOLDER=os.path.abspath(upload_folder),
+        OUTPUT_FOLDER=os.path.abspath(output_folder),
         MAX_CONTENT_LENGTH=MAX_FILE_SIZE,
         JSON_SORT_KEYS=False
     )
@@ -197,21 +209,6 @@ def create_app(config=None):
                     </form>
                     
                     <div id="status" style="margin-top: 20px; display: none;"></div>
-                    
-                    <div class="api-docs">
-                        <h3>📚 API Documentation</h3>
-                        <div class="endpoint">POST /api/process - Process data and generate reports</div>
-                        <div class="endpoint">GET /api/health - Check API status</div>
-                        <div class="endpoint">GET /api/download/{job_id}/{format} - Download generated report</div>
-                        
-                        <h3 style="margin-top: 20px;">🔧 Available Endpoints</h3>
-                        <ul>
-                            <li><span class="success">GET /api/health</span> - Health check</li>
-                            <li><span class="info">POST /api/process</span> - Process file and generate reports</li>
-                            <li><span class="info">GET /api/job-status/{job_id}</span> - Check job status</li>
-                            <li><span class="success">GET /api/download/{job_id}/{format}</span> - Download report</li>
-                        </ul>
-                    </div>
                 </div>
             </div>
             
@@ -264,15 +261,6 @@ def create_app(config=None):
         </html>
         """
         return render_template_string(html)
-
-    @app.route('/api/health', methods=['GET'])
-    def health_check():
-        """Health check endpoint."""
-        return jsonify({
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "version": "1.0.0"
-        })
 
     @app.route('/api/process', methods=['POST'])
     def process_data():
@@ -658,13 +646,6 @@ def create_app(config=None):
             logger.error(f"Error processing file: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-    @app.route('/api/job-status/<job_id>', methods=['GET'])
-    def get_job_status(job_id):
-        """Get status of a processing job."""
-        if job_id in app.processing_jobs:
-            return jsonify(app.processing_jobs[job_id])
-        return jsonify({"error": "Job not found"}), 404
-
     @app.route('/api/download/<job_id>/<format>', methods=['GET'])
     def download_report(job_id, format):
         """Download generated report."""
@@ -674,15 +655,28 @@ def create_app(config=None):
             
             job = app.processing_jobs[job_id]
             
-            if format == 'pdf' and job['pdf_path']:
-                filepath = os.path.join(app.config['OUTPUT_FOLDER'], job['pdf_path'])
-            elif format == 'pptx' and job['pptx_path']:
-                filepath = os.path.join(app.config['OUTPUT_FOLDER'], job['pptx_path'])
+            # Get the absolute output folder path
+            output_folder = os.path.abspath(app.config['OUTPUT_FOLDER'])
+            
+            if format == 'pdf' and job.get('pdf_path'):
+                filename = job['pdf_path']
+            elif format == 'pptx' and job.get('pptx_path'):
+                filename = job['pptx_path']
             else:
                 return jsonify({"error": f"Format {format} not available"}), 404
             
+            # Construct absolute file path
+            filepath = os.path.join(output_folder, filename)
+            filepath = os.path.abspath(filepath)
+            
+            # Security check: ensure file is within output folder
+            if not filepath.startswith(output_folder):
+                logger.error(f"Security violation: Attempted access outside output folder: {filepath}")
+                return jsonify({"error": "Invalid file path"}), 403
+            
             if not os.path.exists(filepath):
-                return jsonify({"error": "File not found"}), 404
+                logger.error(f"File not found: {filepath}")
+                return jsonify({"error": f"File not found: {filename}"}), 404
             
             return send_file(
                 filepath,
@@ -692,6 +686,8 @@ def create_app(config=None):
             
         except Exception as e:
             logger.error(f"Error downloading report: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return jsonify({"error": str(e)}), 500
 
     @app.errorhandler(413)

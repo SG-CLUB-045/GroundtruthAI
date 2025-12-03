@@ -4,7 +4,6 @@ Creates PDF and PowerPoint reports with charts, tables, and insights
 """
 
 import os
-import io
 import logging
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime

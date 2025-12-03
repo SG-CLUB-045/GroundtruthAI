@@ -18,18 +18,13 @@ class InsightGenerator:
     Generates natural language insights from data analysis using Google Gemini.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-pro"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-flash"):
         """
         Initialize InsightGenerator.
         
         Args:
             api_key: Google Gemini API key (uses GEMINI_API_KEY env var if not provided)
-            model: Model to use. Supported models:
-                   - gemini-3-pro-preview (latest, best for complex analysis)
-                   - gemini-1.5-pro (stable, best for complex analysis)
-                   - gemini-1.5-flash (faster, good for quick insights)
-                   - gemini-1.5-pro-002 (latest Pro version)
-                   - gemini-1.5-flash-002 (latest Flash version)
+            model: Model to use. Default: gemini-2.5-flash
             
         Raises:
             ValueError: If Gemini API key is not provided or client cannot be initialized
@@ -45,54 +40,53 @@ class InsightGenerator:
             )
         
         try:
-            # Try new API format first
+            # Try legacy API format first (more stable and widely supported)
             try:
-                from google import genai
-                # Ensure API key is in environment for Client to read
-                if self.api_key:
-                    os.environ['GEMINI_API_KEY'] = self.api_key
-                # Create client (reads from GEMINI_API_KEY env var)
-                self.client = genai.Client()
-                self.use_new_api = True
-                logger.info(f"Initialized Google Gemini client (new API) with model: {model}")
+                import google.generativeai as genai
+                genai.configure(api_key=self.api_key)
+                self.client = genai.GenerativeModel(model)
+                self.genai_module = genai
+                self.use_new_api = False
+                logger.info(f"Initialized Google Gemini client (legacy API) with model: {model}")
             except ImportError:
-                # Fallback to old API format
+                # If legacy API not available, try new API format
                 try:
-                    import google.generativeai as genai
-                    genai.configure(api_key=self.api_key)
-                    self.client = genai.GenerativeModel(model)
-                    self.use_new_api = False
-                    logger.info(f"Initialized Google Gemini client (legacy API) with model: {model}")
-                except Exception as legacy_error:
-                    raise ValueError(
-                        f"Error initializing Gemini client: {str(legacy_error)}. "
-                        "Please verify your GEMINI_API_KEY is correct and try updating google-generativeai: pip install --upgrade google-generativeai"
+                    from google import genai
+                    if self.api_key:
+                        os.environ['GEMINI_API_KEY'] = self.api_key
+                    self.client = genai.Client()
+                    self.genai_module = genai
+                    self.use_new_api = True
+                    logger.info(f"Initialized Google Gemini client (new API) with model: {model}")
+                except ImportError:
+                    raise ImportError(
+                        "Google Generative AI package not installed. "
+                        "Please run: pip install google-generativeai"
                     )
-            except Exception as new_api_error:
-                # If new API fails, try legacy API
-                error_msg = str(new_api_error)
-                try:
-                    import google.generativeai as genai
-                    genai.configure(api_key=self.api_key)
-                    self.client = genai.GenerativeModel(model)
-                    self.use_new_api = False
-                    logger.info(f"Initialized Google Gemini client (legacy API) with model: {model}")
-                except Exception as legacy_error:
-                    # Both APIs failed
-                    if "not found" in error_msg.lower() or "404" in error_msg or "is not supported" in error_msg.lower():
-                        suggested_models = "gemini-3-pro-preview, gemini-1.5-pro, gemini-1.5-flash, gemini-1.5-pro-002, gemini-1.5-flash-002"
+            except Exception as legacy_error:
+                error_msg = str(legacy_error)
+                # If legacy API fails with model error, try new API format
+                if "not found" in error_msg.lower() or "404" in error_msg or "is not supported" in error_msg.lower():
+                    logger.warning(f"Legacy API model '{model}' not found, trying new API format...")
+                    try:
+                        from google import genai
+                        if self.api_key:
+                            os.environ['GEMINI_API_KEY'] = self.api_key
+                        self.client = genai.Client()
+                        self.genai_module = genai
+                        self.use_new_api = True
+                        logger.info(f"Initialized Google Gemini client (new API) with model: {model}")
+                    except Exception as new_api_error:
                         raise ValueError(
-                            f"Model '{model}' is not available or not supported. "
-                            f"Please use one of these valid model names: {suggested_models}. "
-                            f"Recommended: 'gemini-3-pro-preview' or 'gemini-1.5-pro' for best quality, or 'gemini-1.5-flash' for faster responses. "
-                            f"Original error: {error_msg}"
+                            f"Model '{model}' is not available. "
+                            f"Please use 'gemini-2.5-flash' as the model name. "
+                            f"Legacy API error: {error_msg}, New API error: {str(new_api_error)}"
                         )
-                    else:
-                        raise ValueError(
-                            f"Error initializing Gemini client with model '{model}': {error_msg}. "
-                            "Please verify your GEMINI_API_KEY is correct and the model name is valid. "
-                            "Try using 'gemini-3-pro-preview', 'gemini-1.5-pro' or 'gemini-1.5-flash'."
-                        )
+                else:
+                    raise ValueError(
+                        f"Error initializing Gemini client: {error_msg}. "
+                        "Please verify your GEMINI_API_KEY is correct."
+                    )
         except ImportError:
             raise ImportError(
                 "Google Generative AI package not installed. "
@@ -147,11 +141,41 @@ class InsightGenerator:
             
             # Use new API format if available
             if hasattr(self, 'use_new_api') and self.use_new_api:
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt
-                )
-                summary = response.text.strip()
+                try:
+                    response = self.client.models.generate_content(
+                        model=self.model,
+                        contents=prompt
+                    )
+                    summary = response.text.strip()
+                except Exception as new_api_error:
+                    error_msg = str(new_api_error)
+                    # If model not found, try alternative models
+                    if "404" in error_msg or "not found" in error_msg.lower() or "not supported" in error_msg.lower():
+                        logger.warning(f"Model {self.model} not found, trying gemini-2.5-flash...")
+                        # Try gemini-2.5-flash as fallback
+                        alternative_models = ["gemini-2.5-flash"]
+                        summary = None
+                        for alt_model in alternative_models:
+                            try:
+                                logger.info(f"Trying model: {alt_model}")
+                                response = self.client.models.generate_content(
+                                    model=alt_model,
+                                    contents=prompt
+                                )
+                                summary = response.text.strip()
+                                self.model = alt_model  # Update model for future calls
+                                logger.info(f"Successfully used model: {alt_model}")
+                                break
+                            except Exception:
+                                continue
+                        
+                        if summary is None:
+                            raise ValueError(
+                                f"None of the models worked. Original error: {error_msg}. "
+                                "Please check your API key and try updating: pip install --upgrade google-generativeai"
+                            )
+                    else:
+                        raise
             else:
                 # Legacy API format
                 response = self.client.generate_content(prompt)
@@ -164,7 +188,7 @@ class InsightGenerator:
             logger.error(f"Error generating executive summary: {str(e)}")
             raise ValueError(
                 f"Failed to generate executive summary using Gemini: {str(e)}. "
-                "Please verify your API key and try again."
+                "Please verify your API key and try again. You may need to update: pip install --upgrade google-generativeai"
             )
 
     def generate_key_findings(
@@ -196,10 +220,26 @@ class InsightGenerator:
             
             # Use new API format if available
             if hasattr(self, 'use_new_api') and self.use_new_api:
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt
-                )
+                try:
+                    response = self.client.models.generate_content(
+                        model=self.model,
+                        contents=prompt
+                    )
+                except Exception as e:
+                    if "404" in str(e) or "not found" in str(e).lower():
+                        # Try alternative models
+                        for alt_model in ["gemini-2.5-flash"]:
+                            try:
+                                response = self.client.models.generate_content(
+                                    model=alt_model,
+                                    contents=prompt
+                                )
+                                self.model = alt_model
+                                break
+                            except Exception:
+                                continue
+                    else:
+                        raise
             else:
                 # Legacy API format
                 response = self.client.generate_content(prompt)
@@ -261,10 +301,26 @@ class InsightGenerator:
             
             # Use new API format if available
             if hasattr(self, 'use_new_api') and self.use_new_api:
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt
-                )
+                try:
+                    response = self.client.models.generate_content(
+                        model=self.model,
+                        contents=prompt
+                    )
+                except Exception as e:
+                    if "404" in str(e) or "not found" in str(e).lower():
+                        # Try alternative models
+                        for alt_model in ["gemini-2.5-flash"]:
+                            try:
+                                response = self.client.models.generate_content(
+                                    model=alt_model,
+                                    contents=prompt
+                                )
+                                self.model = alt_model
+                                break
+                            except Exception:
+                                continue
+                    else:
+                        raise
             else:
                 # Legacy API format
                 response = self.client.generate_content(prompt)
@@ -393,10 +449,26 @@ Write in a professional, strategic tone suitable for executive leadership. Focus
             
             # Use new API format if available
             if hasattr(self, 'use_new_api') and self.use_new_api:
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt
-                )
+                try:
+                    response = self.client.models.generate_content(
+                        model=self.model,
+                        contents=prompt
+                    )
+                except Exception as e:
+                    if "404" in str(e) or "not found" in str(e).lower():
+                        # Try alternative models
+                        for alt_model in ["gemini-2.5-flash"]:
+                            try:
+                                response = self.client.models.generate_content(
+                                    model=alt_model,
+                                    contents=prompt
+                                )
+                                self.model = alt_model
+                                break
+                            except Exception:
+                                continue
+                    else:
+                        raise
             else:
                 # Legacy API format
                 response = self.client.generate_content(prompt)
