@@ -6,11 +6,39 @@ Generates natural language insights using Google Gemini API
 import os
 import json
 import logging
+import re
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def clean_gemini_text(text: str) -> str:
+    """
+    Clean and format text from Gemini responses.
+    Removes asterisks, markdown formatting, and improves readability.
+    
+    Args:
+        text: Raw text from Gemini
+        
+    Returns:
+        Cleaned and formatted text
+    """
+    if not text:
+        return ""
+    
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    text = re.sub(r'_([^_]+)_', r'\1', text)
+    text = re.sub(r'\*+', '', text)
+    text = re.sub(r' +', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    lines = [line.strip() for line in text.split('\n')]
+    text = '\n'.join(lines)
+    text = text.strip()
+    
+    return text
 
 
 class InsightGenerator:
@@ -40,7 +68,6 @@ class InsightGenerator:
             )
         
         try:
-            # Try legacy API format first (more stable and widely supported)
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=self.api_key)
@@ -49,7 +76,6 @@ class InsightGenerator:
                 self.use_new_api = False
                 logger.info(f"Initialized Google Gemini client (legacy API) with model: {model}")
             except ImportError:
-                # If legacy API not available, try new API format
                 try:
                     from google import genai
                     if self.api_key:
@@ -65,7 +91,6 @@ class InsightGenerator:
                     )
             except Exception as legacy_error:
                 error_msg = str(legacy_error)
-                # If legacy API fails with model error, try new API format
                 if "not found" in error_msg.lower() or "404" in error_msg or "is not supported" in error_msg.lower():
                     logger.warning(f"Legacy API model '{model}' not found, trying new API format...")
                     try:
@@ -93,7 +118,6 @@ class InsightGenerator:
                 "Please run: pip install google-generativeai"
             )
         except ValueError:
-            # Re-raise ValueError as-is (already formatted)
             raise
         except Exception as e:
             raise ValueError(
@@ -139,7 +163,6 @@ class InsightGenerator:
         try:
             prompt = self._build_executive_summary_prompt(metrics, context, max_length)
             
-            # Use new API format if available
             if hasattr(self, 'use_new_api') and self.use_new_api:
                 try:
                     response = self.client.models.generate_content(
@@ -149,10 +172,8 @@ class InsightGenerator:
                     summary = response.text.strip()
                 except Exception as new_api_error:
                     error_msg = str(new_api_error)
-                    # If model not found, try alternative models
                     if "404" in error_msg or "not found" in error_msg.lower() or "not supported" in error_msg.lower():
                         logger.warning(f"Model {self.model} not found, trying gemini-2.5-flash...")
-                        # Try gemini-2.5-flash as fallback
                         alternative_models = ["gemini-2.5-flash"]
                         summary = None
                         for alt_model in alternative_models:
@@ -163,7 +184,7 @@ class InsightGenerator:
                                     contents=prompt
                                 )
                                 summary = response.text.strip()
-                                self.model = alt_model  # Update model for future calls
+                                self.model = alt_model
                                 logger.info(f"Successfully used model: {alt_model}")
                                 break
                             except Exception:
@@ -177,12 +198,12 @@ class InsightGenerator:
                     else:
                         raise
             else:
-                # Legacy API format
                 response = self.client.generate_content(prompt)
                 summary = response.text.strip()
             
             logger.info("Generated executive summary using Gemini")
-            return summary[:max_length * 2]  # Approximate character limit
+            cleaned_summary = clean_gemini_text(summary)
+            return cleaned_summary[:max_length * 2]
             
         except Exception as e:
             logger.error(f"Error generating executive summary: {str(e)}")
@@ -218,7 +239,6 @@ class InsightGenerator:
         try:
             prompt = self._build_findings_prompt(metrics, num_findings)
             
-            # Use new API format if available
             if hasattr(self, 'use_new_api') and self.use_new_api:
                 try:
                     response = self.client.models.generate_content(
@@ -227,7 +247,6 @@ class InsightGenerator:
                     )
                 except Exception as e:
                     if "404" in str(e) or "not found" in str(e).lower():
-                        # Try alternative models
                         for alt_model in ["gemini-2.5-flash"]:
                             try:
                                 response = self.client.models.generate_content(
@@ -241,27 +260,25 @@ class InsightGenerator:
                     else:
                         raise
             else:
-                # Legacy API format
                 response = self.client.generate_content(prompt)
             response_text = response.text.strip()
+            cleaned_text = clean_gemini_text(response_text)
             
-            # Parse findings from response
             findings = []
-            for line in response_text.split("\n"):
+            for line in cleaned_text.split("\n"):
                 line = line.strip()
                 if line and (line.startswith("-") or line.startswith("•") or 
-                           line.startswith("*") or line[0].isdigit()):
-                    # Remove bullet points and numbering
+                           line.startswith("*") or (line and line[0].isdigit())):
                     finding = line.lstrip("-•*0123456789. ").strip()
+                    finding = clean_gemini_text(finding)
                     if finding:
                         findings.append(finding)
             
             if not findings:
-                # If no bullet points found, split by sentences
-                findings = [s.strip() for s in response_text.split(".") if s.strip()][:num_findings]
+                findings = [clean_gemini_text(s.strip()) for s in cleaned_text.split(".") if s.strip()][:num_findings]
             
             logger.info(f"Generated {len(findings)} key findings using Gemini")
-            return findings[:num_findings] if findings else [response_text[:200]]
+            return findings[:num_findings] if findings else [cleaned_text[:200]]
             
         except Exception as e:
             logger.error(f"Error generating findings: {str(e)}")
@@ -299,7 +316,6 @@ class InsightGenerator:
         try:
             prompt = self._build_recommendations_prompt(metrics, context, num_recommendations)
             
-            # Use new API format if available
             if hasattr(self, 'use_new_api') and self.use_new_api:
                 try:
                     response = self.client.models.generate_content(
@@ -308,7 +324,6 @@ class InsightGenerator:
                     )
                 except Exception as e:
                     if "404" in str(e) or "not found" in str(e).lower():
-                        # Try alternative models
                         for alt_model in ["gemini-2.5-flash"]:
                             try:
                                 response = self.client.models.generate_content(
@@ -322,27 +337,25 @@ class InsightGenerator:
                     else:
                         raise
             else:
-                # Legacy API format
                 response = self.client.generate_content(prompt)
             response_text = response.text.strip()
+            cleaned_text = clean_gemini_text(response_text)
             
-            # Parse recommendations from response
             recommendations = []
-            for line in response_text.split("\n"):
+            for line in cleaned_text.split("\n"):
                 line = line.strip()
                 if line and (line.startswith("-") or line.startswith("•") or 
-                           line.startswith("*") or line[0].isdigit()):
-                    # Remove bullet points and numbering
+                           line.startswith("*") or (line and line[0].isdigit())):
                     rec = line.lstrip("-•*0123456789. ").strip()
+                    rec = clean_gemini_text(rec)
                     if rec:
                         recommendations.append(rec)
             
             if not recommendations:
-                # If no bullet points found, split by sentences
-                recommendations = [s.strip() for s in response_text.split(".") if s.strip()][:num_recommendations]
+                recommendations = [clean_gemini_text(s.strip()) for s in cleaned_text.split(".") if s.strip()][:num_recommendations]
             
             logger.info(f"Generated {len(recommendations)} recommendations using Gemini")
-            return recommendations[:num_recommendations] if recommendations else [response_text[:200]]
+            return recommendations[:num_recommendations] if recommendations else [cleaned_text[:200]]
             
         except Exception as e:
             logger.error(f"Error generating recommendations: {str(e)}")
@@ -447,7 +460,6 @@ Your analysis should include:
 
 Write in a professional, strategic tone suitable for executive leadership. Focus on insights that create competitive advantage and drive sustainable business growth."""
             
-            # Use new API format if available
             if hasattr(self, 'use_new_api') and self.use_new_api:
                 try:
                     response = self.client.models.generate_content(
@@ -456,7 +468,6 @@ Write in a professional, strategic tone suitable for executive leadership. Focus
                     )
                 except Exception as e:
                     if "404" in str(e) or "not found" in str(e).lower():
-                        # Try alternative models
                         for alt_model in ["gemini-2.5-flash"]:
                             try:
                                 response = self.client.models.generate_content(
@@ -470,9 +481,9 @@ Write in a professional, strategic tone suitable for executive leadership. Focus
                     else:
                         raise
             else:
-                # Legacy API format
                 response = self.client.generate_content(prompt)
-            return response.text.strip()
+            cleaned_analysis = clean_gemini_text(response.text.strip())
+            return cleaned_analysis
             
         except Exception as e:
             logger.error(f"Error generating detailed analysis: {str(e)}")

@@ -7,9 +7,6 @@ __pycache__/
 *.so
 .Python
 
-# Generated directories
-output/
-uploads/
 
 # IDE
 .vscode/

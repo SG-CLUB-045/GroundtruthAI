@@ -44,18 +44,14 @@ def create_app(config=None):
     app = Flask(__name__)
     CORS(app)
     
-    # Configuration
     if config is None:
         config = {}
     
-    # Get project root directory (parent of src directory)
     project_root = Path(__file__).parent.parent.parent.resolve()
     
-    # Convert relative paths to absolute paths
     upload_folder = config.get('upload_folder', './uploads')
     output_folder = config.get('output_folder', './output')
     
-    # If paths are relative, make them absolute relative to project root
     if not os.path.isabs(upload_folder):
         upload_folder = os.path.join(project_root, upload_folder.lstrip('./'))
     if not os.path.isabs(output_folder):
@@ -68,11 +64,9 @@ def create_app(config=None):
         JSON_SORT_KEYS=False
     )
     
-    # Create folders
     for folder in [app.config['UPLOAD_FOLDER'], app.config['OUTPUT_FOLDER']]:
         os.makedirs(folder, exist_ok=True)
     
-    # Global state
     app.processing_jobs = {}
     
     @app.route('/', methods=['GET'])
@@ -277,23 +271,19 @@ def create_app(config=None):
             if not allowed_file(file.filename):
                 return jsonify({"error": "File type not allowed"}), 400
             
-            # Get parameters
             report_type = request.form.get('reportType', 'pdf')
             context = request.form.get('context', '')
             
-            # Save uploaded file
             filename = secure_filename(file.filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(filepath)
             
             logger.info(f"Processing file: {filename}")
             
-            # Initialize components
             ingester = DataIngester(use_polars=False)
             analyzer = DataAnalyzer()
             business_analyzer = BusinessAnalyzer()
             
-            # Initialize InsightGenerator - this will raise error if Gemini is not available
             try:
                 insight_gen = InsightGenerator()
                 if not insight_gen.is_available():
@@ -307,7 +297,6 @@ def create_app(config=None):
             
             report_gen = ReportGenerator(app.config['OUTPUT_FOLDER'])
             
-            # Load data
             if filename.endswith('.csv'):
                 data = ingester.from_csv(filepath)
             elif filename.endswith('.json'):
@@ -315,23 +304,19 @@ def create_app(config=None):
             elif filename.endswith('.xlsx'):
                 data = pd.read_excel(filepath)
             
-            # Clean and prepare data
             ingester.clean_data(data)
             analyzer.load_data(data)
             business_analyzer.load_data(data)
             
-            # Perform comprehensive analysis
             stats = analyzer.calculate_basic_statistics()
             summary = analyzer.get_summary_insights()
             
-            # Perform advanced business intelligence analysis
             business_kpis = business_analyzer.calculate_business_kpis()
             swot_analysis = business_analyzer.generate_swot_analysis(context)
             growth_opportunities = business_analyzer.identify_growth_opportunities()
             risk_factors = business_analyzer.calculate_risk_factors()
             strategic_recommendations = business_analyzer.generate_strategic_recommendations()
             
-            # Combine all metrics for insight generation
             all_metrics = analyzer.get_metrics()
             all_metrics['business_kpis'] = business_kpis
             all_metrics['swot_analysis'] = swot_analysis
@@ -339,7 +324,6 @@ def create_app(config=None):
             all_metrics['risk_factors'] = risk_factors
             all_metrics['strategic_recommendations'] = strategic_recommendations
             
-            # Try to calculate trends if date column exists
             trends = None
             date_cols = [col for col in data.columns if 'date' in col.lower() or 'time' in col.lower()]
             numeric_cols = data.select_dtypes(include=['number']).columns.tolist()
@@ -354,7 +338,6 @@ def create_app(config=None):
                 except:
                     pass
             
-            # Calculate correlations if multiple numeric columns
             correlations = None
             if len(numeric_cols) > 1:
                 try:
@@ -362,8 +345,6 @@ def create_app(config=None):
                 except:
                     pass
             
-            # Generate strategic insights with business intelligence using Gemini
-            # This will raise an error if Gemini is not available
             try:
                 narrative = insight_gen.generate_insight_narrative(
                     all_metrics,
@@ -376,10 +357,8 @@ def create_app(config=None):
                     "error": f"Failed to generate detailed report: {str(e)}. Please ensure GEMINI_API_KEY is set correctly."
                 }), 500
             
-            # Create multiple visualizations
             chart_paths = []
             
-            # Chart 1: Distribution of first numeric column
             if numeric_cols:
                 col = numeric_cols[0]
                 if len(data[col].unique()) <= 20:
@@ -394,7 +373,6 @@ def create_app(config=None):
                     if chart_path:
                         chart_paths.append(chart_path)
             
-            # Chart 2: Top values if categorical columns exist
             categorical_cols = data.select_dtypes(include=['object']).columns.tolist()
             if categorical_cols and numeric_cols:
                 cat_col = categorical_cols[0]
@@ -413,12 +391,10 @@ def create_app(config=None):
                 except:
                     pass
             
-            # Chart 3: Trend chart if date column exists
             if trends and date_cols and numeric_cols:
                 try:
                     trend_data = trends.get('trend_data', {})
                     if isinstance(trend_data, dict) and 'sum' in str(trend_data):
-                        # Extract trend values
                         trend_values = {}
                         for key, value in list(trend_data.items())[:20]:  # Limit to 20 points
                             if isinstance(value, dict) and 'sum' in value:
@@ -439,7 +415,6 @@ def create_app(config=None):
                 except Exception as e:
                     logger.warning(f"Could not create trend chart: {str(e)}")
             
-            # Prepare comprehensive report content
             exec_summary = narrative.get("executive_summary", 
                 f"This report analyzes {summary['total_rows']} records across {summary['total_columns']} dimensions. "
                 f"The analysis reveals key patterns and insights to inform strategic decision-making.")
@@ -458,7 +433,6 @@ def create_app(config=None):
                 ),
             }
             
-            # Add Business KPIs section
             if business_kpis:
                 kpi_text = "Key Business Performance Indicators:\n\n"
                 if 'total_revenue' in business_kpis:
@@ -475,7 +449,6 @@ def create_app(config=None):
                     kpi_text += f"👥 Revenue per Customer: ${business_kpis['revenue_per_customer']:,.2f}\n"
                 sections["Business KPIs"] = kpi_text
             
-            # Add SWOT Analysis
             if swot_analysis:
                 swot_text = "Strategic SWOT Analysis:\n\n"
                 swot_text += "💪 Strengths:\n"
@@ -492,7 +465,6 @@ def create_app(config=None):
                     swot_text += f"  • {threat}\n"
                 sections["SWOT Analysis"] = swot_text
             
-            # Add Growth Opportunities
             if growth_opportunities:
                 opp_text = "Identified Growth Opportunities:\n\n"
                 for idx, opp in enumerate(growth_opportunities[:5], 1):
@@ -502,7 +474,6 @@ def create_app(config=None):
                     opp_text += f"   Impact: {opp.get('impact', 'N/A')} | Effort: {opp.get('effort', 'N/A')}\n\n"
                 sections["Growth Opportunities"] = opp_text
             
-            # Add Risk Factors
             if risk_factors:
                 risk_text = "Business Risk Assessment:\n\n"
                 if risk_factors.get('high_risk'):
@@ -518,10 +489,9 @@ def create_app(config=None):
                         risk_text += f"  • {risk.get('metric', 'Metric')}: {risk.get('issue', 'Issue')}\n"
                 sections["Risk Analysis"] = risk_text
             
-            # Add Key Metrics section
             if stats:
                 metrics_text = "Key Performance Metrics:\n\n"
-                for col, stat in list(stats.items())[:5]:  # Top 5 metrics
+                for col, stat in list(stats.items())[:5]:
                     metrics_text += f"{col}:\n"
                     metrics_text += f"  • Mean: {stat.get('mean', 0):,.2f}\n"
                     metrics_text += f"  • Median: {stat.get('median', 0):,.2f}\n"
@@ -529,7 +499,6 @@ def create_app(config=None):
                     metrics_text += f"  • Standard Deviation: {stat.get('std', 0):,.2f}\n\n"
                 sections["Key Metrics"] = metrics_text
             
-            # Add Trend Analysis if available
             if trends:
                 trend_dir = trends.get('trend_direction', 'stable')
                 sections["Trend Analysis"] = (
@@ -537,14 +506,12 @@ def create_app(config=None):
                     f"This indicates the data is {'growing' if trend_dir == 'increasing' else 'declining' if trend_dir == 'decreasing' else 'stable'} over the analyzed period."
                 )
             
-            # Prepare statistics tables
             tables = []
             if stats:
-                # Create statistics table
                 stats_table_data = [["Metric", "Mean", "Median", "Min", "Max", "Std Dev"]]
-                for col, stat in list(stats.items())[:10]:  # Top 10 metrics
+                for col, stat in list(stats.items())[:10]:
                     stats_table_data.append([
-                        col[:30],  # Truncate long names
+                        col[:30],
                         f"{stat.get('mean', 0):,.2f}",
                         f"{stat.get('median', 0):,.2f}",
                         f"{stat.get('min', 0):,.2f}",
@@ -559,7 +526,6 @@ def create_app(config=None):
             report_paths = {}
             job_id = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            # Generate PDF if requested
             if report_type in ['pdf', 'both']:
                 try:
                     pdf_path = report_gen.generate_pdf_report(
@@ -580,7 +546,6 @@ def create_app(config=None):
                 except Exception as e:
                     logger.error(f"PDF generation failed: {str(e)}")
             
-            # Generate PPTX if requested
             if report_type in ['pptx', 'both']:
                 try:
                     slides = [
@@ -606,7 +571,6 @@ def create_app(config=None):
                         }
                     ]
                     
-                    # Add chart to slide if available
                     if chart_paths:
                         slides[1]["image"] = chart_paths[0]
                     
@@ -620,7 +584,6 @@ def create_app(config=None):
                 except Exception as e:
                     logger.error(f"PPTX generation failed: {str(e)}")
             
-            # Store job info
             app.processing_jobs[job_id] = {
                 "status": "completed",
                 "file": filename,
@@ -655,7 +618,6 @@ def create_app(config=None):
             
             job = app.processing_jobs[job_id]
             
-            # Get the absolute output folder path
             output_folder = os.path.abspath(app.config['OUTPUT_FOLDER'])
             
             if format == 'pdf' and job.get('pdf_path'):
@@ -665,11 +627,9 @@ def create_app(config=None):
             else:
                 return jsonify({"error": f"Format {format} not available"}), 404
             
-            # Construct absolute file path
             filepath = os.path.join(output_folder, filename)
             filepath = os.path.abspath(filepath)
             
-            # Security check: ensure file is within output folder
             if not filepath.startswith(output_folder):
                 logger.error(f"Security violation: Attempted access outside output folder: {filepath}")
                 return jsonify({"error": "Invalid file path"}), 403
