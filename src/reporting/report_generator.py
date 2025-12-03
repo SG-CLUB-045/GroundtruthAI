@@ -97,7 +97,7 @@ class ReportGenerator:
         Args:
             data: Dictionary with chart data
             chart_type: Type of chart ('bar', 'line', 'pie', 'scatter')
-            title: Chart title
+            title: Chart title (will be updated with actual item count)
             xlabel: X-axis label
             ylabel: Y-axis label
             figsize: Figure size (width, height)
@@ -110,8 +110,16 @@ class ReportGenerator:
             fig.patch.set_facecolor('white')
             
             if chart_type == "bar":
+                total_items = len(data)
                 x_data = list(data.keys())[:20]
                 y_data = list(data.values())[:20]
+                actual_count = len(x_data)
+                
+                if "Top" in title and total_items != actual_count:
+                    title = title.replace("Top 10", f"Top {actual_count}").replace("Top 20", f"Top {actual_count}")
+                elif actual_count < total_items and "Top" not in title:
+                    title = f"{title} ({actual_count} items shown)"
+                
                 ax.bar(x_data, y_data, color='#2E86AB', alpha=0.8)
                 ax.set_xticks(range(len(x_data)))
                 ax.set_xticklabels(x_data, rotation=45, ha='right')

@@ -358,38 +358,60 @@ def create_app(config=None):
                 }), 500
             
             chart_paths = []
+            all_metrics['chart_metadata'] = []
             
             if numeric_cols:
                 col = numeric_cols[0]
-                if len(data[col].unique()) <= 20:
+                unique_values = data[col].unique()
+                if len(unique_values) <= 20:
                     chart_data = data[col].value_counts().to_dict()
+                    actual_count = len(chart_data)
+                    chart_title = f"Distribution of {col} ({actual_count} unique values)"
                     chart_path = report_gen.create_chart(
                         chart_data,
                         chart_type="bar",
-                        title=f"Distribution of {col}",
+                        title=chart_title,
                         ylabel="Count",
                         xlabel=col
                     )
                     if chart_path:
                         chart_paths.append(chart_path)
+                        all_metrics['chart_metadata'].append({
+                            'type': 'bar',
+                            'title': chart_title,
+                            'data_points': actual_count,
+                            'description': f"Bar chart showing distribution of {col} with {actual_count} unique values"
+                        })
             
             categorical_cols = data.select_dtypes(include=['object']).columns.tolist()
             if categorical_cols and numeric_cols:
                 cat_col = categorical_cols[0]
                 num_col = numeric_cols[0]
                 try:
-                    top_values = data.groupby(cat_col)[num_col].sum().nlargest(10).to_dict()
+                    grouped_data = data.groupby(cat_col)[num_col].sum()
+                    unique_categories = len(grouped_data)
+                    top_n = min(10, unique_categories)
+                    top_values = grouped_data.nlargest(top_n).to_dict()
+                    actual_count = len(top_values)
+                    chart_title = f"Top {actual_count} {cat_col} by {num_col}"
+                    
                     chart_path = report_gen.create_chart(
                         top_values,
                         chart_type="bar",
-                        title=f"Top 10 {cat_col} by {num_col}",
+                        title=chart_title,
                         ylabel=num_col,
                         xlabel=cat_col
                     )
                     if chart_path:
                         chart_paths.append(chart_path)
-                except:
-                    pass
+                        all_metrics['chart_metadata'].append({
+                            'type': 'bar',
+                            'title': chart_title,
+                            'data_points': actual_count,
+                            'description': f"Bar chart showing top {actual_count} {cat_col} categories ranked by {num_col}"
+                        })
+                except Exception as e:
+                    logger.warning(f"Could not create category chart: {str(e)}")
             
             if trends and date_cols and numeric_cols:
                 try:
@@ -403,15 +425,23 @@ def create_app(config=None):
                                 trend_values[str(key)] = value
                         
                         if trend_values:
+                            trend_count = len(trend_values)
+                            chart_title = f"Trend Analysis: {numeric_cols[0]} over Time ({trend_count} data points)"
                             chart_path = report_gen.create_chart(
                                 trend_values,
                                 chart_type="line",
-                                title=f"Trend Analysis: {numeric_cols[0]} over Time",
+                                title=chart_title,
                                 ylabel=numeric_cols[0],
                                 xlabel=date_cols[0]
                             )
                             if chart_path:
                                 chart_paths.append(chart_path)
+                                all_metrics['chart_metadata'].append({
+                                    'type': 'line',
+                                    'title': chart_title,
+                                    'data_points': trend_count,
+                                    'description': f"Line chart showing {trend_count} data points of {numeric_cols[0]} trend over time"
+                                })
                 except Exception as e:
                     logger.warning(f"Could not create trend chart: {str(e)}")
             

@@ -506,13 +506,15 @@ Write in a professional, strategic tone suitable for executive leadership. Focus
 3. Provides actionable insights for leadership decision-making
 4. Focuses on revenue growth, profitability, and competitive positioning
 
+IMPORTANT: Use ONLY the exact numbers and values provided in the Business Metrics below. Do not invent or estimate numbers. Reference specific metrics by their exact names and values.
+
 Business Metrics:
 {json.dumps(metrics, indent=2, default=str)}"""
         
         if context:
             prompt += f"\n\nBusiness Context: {context}"
         
-        prompt += "\n\nWrite in a professional, strategic tone suitable for board-level presentation. Focus on what matters most for business growth and competitive advantage."
+        prompt += "\n\nWrite in a professional, strategic tone suitable for board-level presentation. Focus on what matters most for business growth and competitive advantage. Always cite exact numbers from the metrics provided."
         return prompt
 
     def _build_findings_prompt(
@@ -529,13 +531,16 @@ Business Metrics:
 4. Uncover operational inefficiencies or optimization opportunities
 5. Provide insights not obvious from surface-level analysis
 
+IMPORTANT: Use ONLY the exact numbers and values provided in the Business Metrics below. Quote specific metric names and their exact values. Do not invent numbers.
+
 Business Metrics:
 {json.dumps(metrics, indent=2, default=str)}
 
 Format each finding as a separate bullet point starting with "-" or "•". Each finding should be:
-- Specific and data-driven with numbers
+- Specific and data-driven with EXACT numbers from the metrics above
 - Strategic and actionable
 - Focused on business impact (revenue, profit, growth, efficiency)
+- Include specific metric names and their exact values
 - Unique insights that competitors might miss"""
 
     def _build_recommendations_prompt(
@@ -553,12 +558,14 @@ Format each finding as a separate bullet point starting with "-" or "•". Each 
 4. Address critical business risks and opportunities
 5. Include specific, actionable steps with expected outcomes
 
+IMPORTANT: Base all recommendations on the EXACT numbers and values provided in the Business Metrics below. Reference specific metrics by name and use their exact values. Do not invent or estimate numbers.
+
 Business Metrics:
 {json.dumps(metrics, indent=2, default=str)}"""
         
         if context:
             prompt += f"\n\nBusiness Context: {context}"
         
-        prompt += "\n\nFormat each recommendation as a separate bullet point starting with \"-\" or \"•\". Each recommendation should include:\n- Clear action statement\n- Expected business impact (revenue, profit, efficiency)\n- Priority level (High/Medium/Low)\n- Implementation complexity\n\nFocus on recommendations that create competitive advantage and drive sustainable growth."
+        prompt += "\n\nFormat each recommendation as a separate bullet point starting with \"-\" or \"•\". Each recommendation should include:\n- Clear action statement based on specific metrics\n- Expected business impact (revenue, profit, efficiency) with reference to actual metric values\n- Priority level (High/Medium/Low)\n- Implementation complexity\n- Reference to specific metrics that support the recommendation\n\nFocus on recommendations that create competitive advantage and drive sustainable growth. Always cite exact numbers from the metrics provided."
         return prompt
 

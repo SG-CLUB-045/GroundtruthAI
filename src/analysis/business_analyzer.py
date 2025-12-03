@@ -60,19 +60,31 @@ class BusinessAnalyzer:
         if revenue_cols and cost_cols:
             revenue_col = revenue_cols[0]
             cost_col = cost_cols[0]
-            profit = self.data[revenue_col] - self.data[cost_col]
-            kpis['total_profit'] = float(profit.sum())
-            kpis['profit_margin'] = float((profit.sum() / self.data[revenue_col].sum()) * 100) if self.data[revenue_col].sum() > 0 else 0
-            kpis['roi'] = float((profit.sum() / self.data[cost_col].sum()) * 100) if self.data[cost_col].sum() > 0 else 0
-            kpis['cost_efficiency'] = float(self.data[revenue_col].sum() / self.data[cost_col].sum()) if self.data[cost_col].sum() > 0 else 0
+            revenue_total = float(self.data[revenue_col].sum())
+            cost_total = float(self.data[cost_col].sum())
+            profit_total = revenue_total - cost_total
+            
+            kpis['total_profit'] = profit_total
+            kpis['profit_margin'] = float((profit_total / revenue_total) * 100) if revenue_total > 0 else 0.0
+            kpis['roi'] = float((profit_total / cost_total) * 100) if cost_total > 0 else 0.0
+            kpis['cost_efficiency'] = float(revenue_total / cost_total) if cost_total > 0 else 0.0
         
         # Calculate Conversion Metrics
         if conversion_cols and customer_cols:
             conversion_col = conversion_cols[0]
             customer_col = customer_cols[0]
             if customer_col in numeric_cols:
-                kpis['conversion_rate'] = float((self.data[conversion_col].sum() / self.data[customer_col].sum()) * 100) if self.data[customer_col].sum() > 0 else 0
-                kpis['revenue_per_customer'] = float(kpis.get('total_revenue', 0) / self.data[customer_col].sum()) if self.data[customer_col].sum() > 0 else 0
+                customer_total = self.data[customer_col].sum()
+                if customer_total > 0:
+                    conversion_total = self.data[conversion_col].sum()
+                    kpis['conversion_rate'] = float((conversion_total / customer_total) * 100)
+                    if 'total_revenue' in kpis and kpis['total_revenue'] > 0:
+                        kpis['revenue_per_customer'] = float(kpis['total_revenue'] / customer_total)
+                    else:
+                        kpis['revenue_per_customer'] = 0.0
+                else:
+                    kpis['conversion_rate'] = 0.0
+                    kpis['revenue_per_customer'] = 0.0
         
         # Calculate Performance Metrics
         if len(numeric_cols) >= 2:
@@ -308,18 +320,27 @@ class BusinessAnalyzer:
             return None
         
         try:
-            values = self.data[column].dropna().values
+            date_cols = [col for col in self.data.columns if 'date' in col.lower() or 'time' in col.lower()]
+            
+            if date_cols:
+                date_col = date_cols[0]
+                df_sorted = self.data.sort_values(by=date_col)
+                values = df_sorted[column].dropna().values
+            else:
+                values = self.data[column].dropna().values
+            
             if len(values) < 2:
                 return None
             
-            # Simple growth rate: (last - first) / first * 100
-            first_val = values[0]
-            last_val = values[-1]
+            first_val = float(values[0])
+            last_val = float(values[-1])
             
             if first_val != 0:
-                return float(((last_val - first_val) / abs(first_val)) * 100)
+                growth_rate = ((last_val - first_val) / abs(first_val)) * 100
+                return float(growth_rate)
             return None
-        except:
+        except Exception as e:
+            logger.warning(f"Error calculating growth rate for {column}: {str(e)}")
             return None
 
     def _analyze_trend(self, column: str) -> str:
